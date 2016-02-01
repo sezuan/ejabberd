@@ -136,7 +136,7 @@ user_receive_packet(Packet, _C2SState, JID, _From, To) ->
 %    - do not support "private" message mode, and do not modify the original packet in any way
 %    - we also replicate "read" notifications
 check_and_forward(JID, To, Packet, Direction)->
-    case is_chat_message(Packet) andalso
+    case (is_chat_message(Packet) orelse is_receipt(Packet, Direction)) andalso
 	     xml:get_subtag(Packet, <<"private">>) == false andalso
 		 xml:get_subtag(Packet, <<"no-copy">>) == false of
 	true ->
@@ -283,6 +283,10 @@ is_chat_message(_Packet) -> false.
 
 has_non_empty_body(Packet) ->
     xml:get_subtag_cdata(Packet, <<"body">>) =/= <<"">>.
+
+is_receipt(Packet, received) ->
+    xml:get_subtag_with_xmlns(Packet, <<"received">>, ?NS_RECEIPTS) =/= false;
+is_receipt(_Packet, sent) -> false.
 
 %% list {resource, cc_version} with carbons enabled for given user and host
 list(User, Server) ->
