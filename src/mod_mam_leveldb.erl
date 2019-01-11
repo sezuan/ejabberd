@@ -48,11 +48,11 @@
 %%% API
 %%%===================================================================
 init(_Host, _Opts) ->
+    mnesia_eleveldb:register(),
     try
 	{atomic, _} = ejabberd_mnesia:create(
 			?MODULE, archive_msg,
-			[{disc_only_copies, [node()]},
-			 {type, bag},
+			[{leveldb_copies, [node()]},
 			 {attributes, record_info(fields, archive_msg)}]),
 	{atomic, _} = ejabberd_mnesia:create(
 			?MODULE, archive_prefs,
@@ -63,10 +63,17 @@ init(_Host, _Opts) ->
 	    {error, db_failure}
     end.
 
+delete_us({Table, US}) ->
+    Msgs = mnesia:match_object(Table, #archive_msg{
+		us = #ust{us = US, timestamp = '_'}, _ = '_'}, read),
+    lists:foreach(fun(X) ->
+            mnesia:delete_object(X)
+        end, Msgs).
+
 remove_user(LUser, LServer) ->
     US = {LUser, LServer},
     F = fun () ->
-		mnesia:delete({archive_msg, US}),
+		delete_us({archive_msg, US}),
 		mnesia:delete({archive_prefs, US})
 	end,
     mnesia:transaction(F).
@@ -76,7 +83,7 @@ remove_room(_LServer, LName, LHost) ->
 
 remove_from_archive(LUser, LServer, none) ->
     US = {LUser, LServer},
-    case mnesia:transaction(fun () -> mnesia:delete({archive_msg, US}) end) of
+    case mnesia:transaction(fun () -> delete_us({archive_msg, US}) end) of
 	{atomic, _} -> ok;
 	{aborted, Reason} -> {error, Reason}
     end;
@@ -84,7 +91,7 @@ remove_from_archive(LUser, LServer, WithJid) ->
     US = {LUser, LServer},
     Peer = jid:remove_resource(jid:split(WithJid)),
     F = fun () ->
-	    Msgs = mnesia:match_object(#archive_msg{us = US, bare_peer = Peer, _ = '_'}),
+	    Msgs = mnesia:match_object(#archive_msg{us = #ust{us = US, _ = '_'}, bare_peer = Peer, _ = '_'}),
 	    lists:foreach(fun mnesia:delete_object/1, Msgs)
 	end,
     case mnesia:transaction(F) of
@@ -93,28 +100,20 @@ remove_from_archive(LUser, LServer, WithJid) ->
     end.
 
 delete_old_messages(global, TimeStamp, Type) ->
-    mnesia:change_table_copy_type(archive_msg, node(), disc_copies),
-    Result = delete_old_user_messages(mnesia:dirty_first(archive_msg), TimeStamp, Type),
-    mnesia:change_table_copy_type(archive_msg, node(), disc_only_copies),
-    Result.
+    delete_old_user_messages(mnesia:dirty_first(archive_msg), TimeStamp, Type).
 
 delete_old_user_messages('$end_of_table', _TimeStamp, _Type) ->
     ok;
 delete_old_user_messages(User, TimeStamp, Type) ->
     F = fun() ->
-		Msgs = mnesia:read(archive_msg, User),
-		Keep = lists:filter(
-			 fun(#archive_msg{timestamp = MsgTS,
-					  type = MsgType}) ->
-				 MsgTS >= TimeStamp orelse (Type /= all andalso
-							    Type /= MsgType)
-			 end, Msgs),
-		if length(Keep) < length(Msgs) ->
-			mnesia:delete({archive_msg, User}),
-			lists:foreach(fun(Msg) -> mnesia:write(Msg) end, Keep);
-		   true ->
-			ok
-		end
+		case mnesia:read(archive_msg, User) of
+			[#archive_msg{timestamp = MsgTS,
+				     type = MsgType}] when MsgTS < TimeStamp andalso
+							   (Type =:= all orelse
+							    Type =:= MsgType) ->
+                           mnesia:delete({archive_msg, User});
+                        _ -> ok
+	        end
 	end,
     NextRecord = mnesia:dirty_next(archive_msg, User),
     case mnesia:transaction(F) of
@@ -139,7 +138,7 @@ store(Pkt, _, {LUser, LServer}, Type, Peer, Nick, _Dir, TS) ->
 	    LPeer = {PUser, PServer, _} = jid:tolower(Peer),
 	    F = fun() ->
 			mnesia:write(
-			  #archive_msg{us = {LUser, LServer},
+			  #archive_msg{us = #ust{us = {LUser, LServer}},
 				       id = integer_to_binary(TS),
 				       timestamp = misc:usec_to_now(TS),
 				       peer = LPeer,
@@ -206,8 +205,7 @@ make_matchspec(LUser, LServer, Start, undefined, With) ->
     make_matchspec(LUser, LServer, Start, [], With);
 make_matchspec(LUser, LServer, Start, End, {_, _, <<>>} = With) ->
     ets:fun2ms(
-      fun(#archive_msg{timestamp = TS,
-		       us = US,
+      fun(#archive_msg{us = #ust{us = US, timestamp = TS},
 		       bare_peer = BPeer} = Msg)
 	    when Start =< TS, End >= TS,
 		 US == {LUser, LServer},
@@ -216,8 +214,7 @@ make_matchspec(LUser, LServer, Start, End, {_, _, <<>>} = With) ->
       end);
 make_matchspec(LUser, LServer, Start, End, {_, _, _} = With) ->
     ets:fun2ms(
-      fun(#archive_msg{timestamp = TS,
-		       us = US,
+      fun(#archive_msg{us = #ust{us = US, timestamp = TS},
 		       peer = Peer} = Msg)
 	    when Start =< TS, End >= TS,
 		 US == {LUser, LServer},
@@ -226,8 +223,7 @@ make_matchspec(LUser, LServer, Start, End, {_, _, _} = With) ->
       end);
 make_matchspec(LUser, LServer, Start, End, undefined) ->
     ets:fun2ms(
-      fun(#archive_msg{timestamp = TS,
-		       us = US,
+      fun(#archive_msg{us = #ust{us = US, timestamp = TS},
 		       peer = Peer} = Msg)
 	    when Start =< TS, End >= TS,
 		 US == {LUser, LServer} ->
