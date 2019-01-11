@@ -31,6 +31,7 @@
 
 %% Dependencies
 {odbc, @odbc@}.
+{leveldb, @leveldb@}.
 {mysql, @mysql@}.
 {pgsql, @pgsql@}.
 {sqlite, @sqlite@}.
