@@ -18,8 +18,12 @@
 %%%
 %%%----------------------------------------------------------------------
 
+-record(ust,
+	{us = {<<"">>, <<"">>} :: {binary(), binary()},
+	 timestamp = p1_time_compat:timestamp() :: erlang:timestamp()}).
+
 -record(archive_msg,
-	{us = {<<"">>, <<"">>}                :: {binary(), binary()},
+	{us = #ust{}                          :: #ust{},
 	 id = <<>>                            :: binary(),
 	 timestamp = erlang:timestamp()       :: erlang:timestamp(),
 	 peer = {<<"">>, <<"">>, <<"">>}      :: ljid() | undefined,
