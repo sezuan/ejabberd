@@ -109,10 +109,10 @@ AC_ARG_ENABLE(mssql,
 esac],[db_type=generic])
 
 AC_ARG_ENABLE(all,
-[AC_HELP_STRING([--enable-all], [same as --enable-odbc --enable-mysql --enable-pgsql --enable-sqlite --enable-pam --enable-zlib --enable-redis --enable-elixir --enable-stun --enable-sip --enable-debug --enable-tools (useful for Dialyzer checks, default: no)])],
+[AC_HELP_STRING([--enable-all], [same as --enable-odbc --enable-leveldb --enable-mysql --enable-pgsql --enable-sqlite --enable-pam --enable-zlib --enable-redis --enable-elixir --enable-stun --enable-sip --enable-debug --enable-tools (useful for Dialyzer checks, default: no)])],
 [case "${enableval}" in
-  yes) odbc=true mysql=true pgsql=true sqlite=true pam=true zlib=true redis=true elixir=true stun=true sip=true debug=true tools=true ;;
-  no) odbc=false mysql=false pgsql=false sqlite=false pam=false zlib=false redis=false elixir=false stun=false sip=false debug=false tools=false ;;
+  yes) odbc=true leveldb=true mysql=true pgsql=true sqlite=true pam=true zlib=true redis=true elixir=true stun=true sip=true debug=true tools=true ;;
+  no) odbc=false leveldb=true mysql=false pgsql=false sqlite=false pam=false zlib=false redis=false elixir=false stun=false sip=false debug=false tools=false ;;
   *) AC_MSG_ERROR(bad value ${enableval} for --enable-all) ;;
 esac],[])
 
@@ -131,6 +131,14 @@ AC_ARG_ENABLE(odbc,
   no)  odbc=false ;;
   *) AC_MSG_ERROR(bad value ${enableval} for --enable-odbc) ;;
 esac],[if test "x$odbc" = "x"; then odbc=false; fi])
+
+AC_ARG_ENABLE(leveldb,
+[AC_HELP_STRING([--enable-leveldb], [enable leveldb support (MAM ONLY) (default: no)])],
+[case "${enableval}" in
+  yes) leveldb=true ;;
+  no)  leveldb=false ;;
+  *) AC_MSG_ERROR(bad value ${enableval} for --enable-leveldb) ;;
+esac],[if test "x$leveldb" = "x"; then level=false; fi])
 
 AC_ARG_ENABLE(mysql,
 [AC_HELP_STRING([--enable-mysql], [enable MySQL support (default: no)])],
@@ -267,7 +275,7 @@ if test "$sqlite" = "true"; then
 fi
 
 enabled_backends=""
-for backend in odbc mysql pgsql sqlite redis mssql; do
+for backend in odbc leveldb mysql pgsql sqlite redis mssql; do
     if eval test x\${$backend} = xtrue; then
        if test "x$enabled_backends" = "x"; then
           enabled_backends=$backend
@@ -283,6 +291,7 @@ AC_SUBST(new_sql_schema)
 AC_SUBST(full_xml)
 AC_SUBST(db_type)
 AC_SUBST(odbc)
+AC_SUBST(leveldb)
 AC_SUBST(mysql)
 AC_SUBST(pgsql)
 AC_SUBST(sqlite)
