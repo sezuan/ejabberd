@@ -274,7 +274,10 @@ create(Name, TabDef) ->
 
 %% The table MUST exist, otherwise the function would fail
 add_table_copy(Name) ->
-    Type = mnesia:table_info(Name, storage_type),
+    Type = case mnesia:table_info(Name, storage_type) of
+	{ext, StorageType, _DbMod} -> StorageType;
+	StorageType -> StorageType
+    end,
     Nodes = mnesia:table_info(Name, Type),
     case lists:member(node(), Nodes) of
 	true ->
