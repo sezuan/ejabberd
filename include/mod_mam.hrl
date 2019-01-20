@@ -20,12 +20,10 @@
 
 -record(ust,
 	{us = {<<"">>, <<"">>} :: {binary(), binary()},
-	 timestamp = p1_time_compat:timestamp() :: erlang:timestamp()}).
+	 timestamp = erlang:timestamp() :: erlang:timestamp()}).
 
--record(archive_msg_lvl,
+-record(archive_msg_set,
 	{us = #ust{}                          :: #ust{},
-	 id = <<>>                            :: binary() | '_',
-	 timestamp = erlang:timestamp()       :: erlang:timestamp() | '_' | '$1',
 	 peer = {<<"">>, <<"">>, <<"">>}      :: ljid() | '_' | '$3' | undefined,
 	 bare_peer = {<<"">>, <<"">>, <<"">>} :: ljid() | '_' | '$3',
 	 packet = #xmlel{}                    :: xmlel() | message() | '_',
