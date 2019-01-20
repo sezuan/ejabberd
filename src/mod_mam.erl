@@ -1026,7 +1026,7 @@ select_and_send(LServer, Query, RSM, #iq{from = From, to = To} = IQ, MsgType) ->
 	  end,
     case Ret of
 	{Msgs, IsComplete, Count} ->
-	    SortedMsgs = lists:keysort(2, Msgs),
+	    SortedMsgs = lists:keysort(3, Msgs),
 	    send(SortedMsgs, Count, IsComplete, IQ);
 	{error, _} ->
 	    Txt = ?T("Database failure"),
