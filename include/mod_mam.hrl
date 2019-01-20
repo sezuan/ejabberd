@@ -22,10 +22,8 @@
 	{us = {<<"">>, <<"">>}           :: {binary(), binary()},
 	 timestamp = erlang::timestamp() :: erlang:timestamp()}).
 
--record(archive_msg_lvl,
+-record(archive_msg_set,
 	{us = #ust{}                          :: #ust{},
-	 id = <<>>                            :: binary(),
-	 timestamp = erlang:timestamp()       :: erlang:timestamp(),
 	 peer = {<<"">>, <<"">>, <<"">>}      :: ljid() | undefined,
 	 bare_peer = {<<"">>, <<"">>, <<"">>} :: ljid(),
 	 packet = #xmlel{}                    :: xmlel() | message(),
