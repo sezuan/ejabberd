@@ -31,7 +31,8 @@
 	 extended_fields/0, store/8, write_prefs/4, get_prefs/2, select/6, remove_from_archive/3]).
 
 %% DEBUG EXPORTS
--export([timestamp_to_binary/1, binary_to_timestamp/1]).
+-export([timestamp_to_binary/1, binary_to_timestamp/1,
+	 select_from_leveldb/6, inc_timestamp/1, dec_timestamp/1]).
 
 -include_lib("stdlib/include/ms_transform.hrl").
 -include("xmpp.hrl").
@@ -176,6 +177,111 @@ change_record_type(Record, NewType) ->
     Id = timestamp_to_binary(Timestamp),
     list_to_tuple([NewType,US,Id,Timestamp] ++ R).
 
+%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% New LevelDB Query %%%
+%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% Helper Function to Use before/after and start/end identical
+-spec inc_timestamp(erlang:timestamp()) -> erlang:timestamp().
+inc_timestamp(T) ->
+    integer_to_timestamp(timestamp_to_integer(T) + 1).
+-spec dec_timestamp(erlang:timestamp()) -> erlang:timestamp().
+dec_timestamp(T) ->
+    integer_to_timestamp(timestamp_to_integer(T) - 1).
+
+-spec timestamp_to_integer(erlang:timestamp()) -> integer().
+timestamp_to_integer({A,B,C}) ->
+    A*1000000000000+B*1000000+C.
+-spec integer_to_timestamp(integer()) -> erlang:timestamp().
+integer_to_timestamp(Timestamp) ->
+    {Timestamp div 1000000000000, 
+     Timestamp div 1000000 rem 1000000,
+     Timestamp rem 1000000}.
+
+-record(search_options, {
+	direction, start, stop, user, server, with, max}).
+
+select_from_leveldb(LUser, LServer, Start, End, LWith,
+		    #rsm_set{'after' = After,
+			     before = Before,
+			     max = Max}) ->
+
+
+    % Canonicalize Search Parameter
+    Start1 = case {Start, After1 = binary_to_timestamp(After)} of
+		 {undefined, undefined} -> {0,0,0};
+		 {Start, undefined} -> dec_timestamp(Start);
+		 {undefined, After1} -> After1;
+		 {Start, After1} when Start =< After1 -> After1;
+		 _ -> dec_timestamp(Start)
+	     end,
+    End1 = case {End, Before1 = binary_to_timestamp(Before)} of
+		 {undefined, undefined} -> {9999,0,0};
+		 {End, undefined} -> inc_timestamp(End);
+		 {undefined, Before1} -> Before1;
+		 {End, Before1} when End >= Before1 -> Before1;
+	         _ -> inc_timestamp(End)
+	     end,
+
+    % Search Direction
+    SearchOptions = case Before of
+			Before when Before =/= undefined ->
+			    #search_options{direction={prev, fun mnesia:dirty_prev/2},
+					    start=End1, stop=Start1,
+					    user=LUser, server=LServer,
+					    with=LWith, max=Max};
+			_ -> 
+			    #search_options{direction={next, fun mnesia:dirty_next/2},
+					    start=Start1, stop=End1,
+					    user=LUser, server=LServer,
+					    with=LWith, max=Max}
+		    end,
+    
+    Key = fetch_next_key(SearchOptions),
+    select_from_leveldb_(SearchOptions,  Key, []).
+
+fetch_next_key(#search_options{user=LUser, server=LServer, start=Start}= SearchOptions) ->
+    Key = #ust{us = {LUser, LServer},
+	       timestamp = Start},
+    fetch_next_key(SearchOptions, Key).
+
+fetch_next_key(#search_options{direction={_, F}}, Key) ->
+    F(archive_msg_set, Key).
+
+select_from_leveldb_(#search_options{max=Max}, _, Result)
+  when length(Result) =:= Max + 1->
+    [_|Result1] = Result,
+    {Result1, false};
+select_from_leveldb_(_, '$end_of_table', Result) -> {Result, true};
+select_from_leveldb_(#search_options{user=User, server=Server},
+		     #ust{us={User1,Server1}}, Result)
+  when User =/= User1 orelse Server =/= Server1-> {Result, true};
+select_from_leveldb_(#search_options{direction={Dir, _}, stop=Ts},
+		     #ust{timestamp=Ts1}, Result)
+  when (Ts =< Ts1 andalso Dir =:= next) orelse
+       (Ts >= Ts1 andalso Dir =:= prev) -> {Result, true};
+select_from_leveldb_(#search_options{}= SearchOptions, Key, Result) ->
+    [R] = mnesia:dirty_read(archive_msg_set, Key),
+    NextResult = filter_with(SearchOptions, R, Result),
+
+    NextKey = fetch_next_key(SearchOptions, Key),
+    select_from_leveldb_(SearchOptions, NextKey, NextResult).
+
+
+filter_with(#search_options{with = undefined}, R, Acc) -> [R|Acc];
+filter_with(#search_options{with = {_, _, <<>>} = With}, R, Acc) ->
+    case R#archive_msg_set.bare_peer =:= With of
+	true -> [R|Acc];
+	false -> Acc
+    end;
+filter_with(#search_options{with = {_, _, _} = With}, R, Acc) ->
+    case R#archive_msg_set.peer =:= With of
+	true -> [R|Acc];
+	false -> Acc
+    end.
+
+
+
 select(_LServer, JidRequestor,
        #jid{luser = LUser, lserver = LServer} = JidArchive,
        Query, RSM, MsgType) ->
@@ -185,16 +291,21 @@ select(_LServer, JidRequestor,
     LWith = if With /= undefined -> jid:tolower(With);
 	       true -> undefined
 	    end,
-    MS = make_matchspec(LUser, LServer, Start, End, LWith),
-    Msgs = mnesia:dirty_select(archive_msg_set, MS),
-    SortedMsgs = lists:sort(
-		   fun(A, B) ->
-			   #archive_msg_set{us = #ust{timestamp = T1}} = A,
-			   #archive_msg_set{us = #ust{timestamp = T2}} = B,
-			   T1 =< T2
-		   end, Msgs),
-    {FilteredMsgs, IsComplete} = filter_by_rsm(SortedMsgs, RSM),
-    Count = length(Msgs),
+    LRSM = case RSM of
+	       undefined -> #rsm_set{max=30};
+	       _ -> RSM
+	   end,
+    {FilteredMsgs, IsComplete} = select_from_leveldb(LUser, LServer,Start, End, LWith, LRSM),
+
+%    SortedMsgs = lists:sort(
+%		   fun(A, B) ->
+%			   #archive_msg_set{us = #ust{timestamp = T1}} = A,
+%			   #archive_msg_set{us = #ust{timestamp = T2}} = B,
+%			   T1 =< T2
+%		   end, Msgs),
+
+    %{FilteredMsgs, IsComplete} = filter_by_rsm(SortedMsgs, RSM),
+    Count = undefined,
     Result = {lists:flatmap(
 		fun(MsgOR) ->
 			Msg = change_record_type(MsgOR, archive_msg),
@@ -214,75 +325,14 @@ select(_LServer, JidRequestor,
 %%%===================================================================
 %%% Internal functions
 %%%===================================================================
-make_matchspec(LUser, LServer, Start, undefined, With) ->
-    %% List is always greater than a tuple
-    make_matchspec(LUser, LServer, Start, [], With);
-make_matchspec(LUser, LServer, Start, End, {_, _, <<>>} = With) ->
-    ets:fun2ms(
-      fun(#archive_msg_set{us = #ust{us = US, timestamp = TS},
-		           bare_peer = BPeer} = Msg)
-	    when Start =< TS, End >= TS,
-		 US == {LUser, LServer},
-		 BPeer == With ->
-	      Msg
-      end);
-make_matchspec(LUser, LServer, Start, End, {_, _, _} = With) ->
-    ets:fun2ms(
-      fun(#archive_msg_set{us = #ust{us = US, timestamp = TS},
-		           peer = Peer} = Msg)
-	    when Start =< TS, End >= TS,
-		 US == {LUser, LServer},
-		 Peer == With ->
-	      Msg
-      end);
-make_matchspec(LUser, LServer, Start, End, undefined) ->
-    ets:fun2ms(
-      fun(#archive_msg_set{us = #ust{us = US, timestamp = TS},
-		           peer = Peer} = Msg)
-	    when Start =< TS, End >= TS,
-		 US == {LUser, LServer} ->
-	      Msg
-      end).
-
-filter_by_rsm(Msgs, undefined) ->
-    {Msgs, true};
-filter_by_rsm(_Msgs, #rsm_set{max = Max}) when Max < 0 ->
-    {[], true};
-filter_by_rsm(Msgs, #rsm_set{max = Max, before = Before, 'after' = After}) ->
-    NewMsgs = if is_binary(After), After /= <<"">> ->
-		      lists:filter(
-			fun(#archive_msg_set{us = #ust{timestamp = I}}) ->
-				I > binary_to_timestamp(After)
-			end, Msgs);
-		 is_binary(Before), Before /= <<"">> ->
-		      lists:foldl(
-			fun(#archive_msg_set{us = #ust{timestamp = I}} = Msg, Acc) ->
-			    case I < binary_to_timestamp(Before) of
-				true -> [Msg|Acc];
-				false -> Acc
-			    end
-			end, [], Msgs);
-		 is_binary(Before), Before == <<"">> ->
-		      lists:reverse(Msgs);
-		 true ->
-		      Msgs
-	      end,
-    filter_by_max(NewMsgs, Max).
-
-filter_by_max(Msgs, undefined) ->
-    {Msgs, true};
-filter_by_max(Msgs, Len) when is_integer(Len), Len >= 0 ->
-    {lists:sublist(Msgs, Len), length(Msgs) =< Len};
-filter_by_max(_Msgs, _Junk) ->
-    {[], true}.
 
 -spec timestamp_to_binary(erlang:timestamp()) -> binary().
 timestamp_to_binary(Timestamp) ->
     base64:encode(term_to_binary(Timestamp)).
 
--spec binary_to_timestamp(binary()) -> erlang:timestamp().
+-spec binary_to_timestamp(binary()) -> erlang:timestamp() | undefined.
 binary_to_timestamp(Binary) ->
     case catch binary_to_term(base64:decode(Binary)) of
-	{'EXIT', _} -> <<"">>;
+	{'EXIT', _} -> undefined;
 	Timestamp -> Timestamp
     end.
