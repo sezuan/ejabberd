@@ -28,7 +28,8 @@
 
 %% API
 -export([init/2, remove_user/2, remove_room/3, delete_old_messages/3,
-	 extended_fields/0, store/8, write_prefs/4, get_prefs/2, select/6, remove_from_archive/3]).
+	 extended_fields/0, store/8, write_prefs/4, get_prefs/2, select/6, remove_from_archive/3,
+	 convert_to_leveldb/0]).
 
 %% DEBUG EXPORTS
 -export([timestamp_to_binary/1, binary_to_timestamp/1,
@@ -47,6 +48,28 @@
 	 orelse byte_size(A) < byte_size(B))).
 
 -define(TABLE_SIZE_LIMIT, 2000000000). % A bit less than 2 GiB.
+
+
+convert_to_leveldb() ->
+    Keys = mnesia:dirty_all_keys(archive_msg),
+    lists:foreach(
+      fun(X) ->
+	      Items = mnesia:dirty_read(archive_msg, X),
+	      lists:foreach(
+		fun(Y) ->
+			#archive_msg{us= US, timestamp= Timestamp,
+				     peer= Peer, bare_peer = BarePeer,
+				     packet = Packet, nick = Nick,
+				     type = Type} = Y,
+			mnesia:dirty_write(
+			  #archive_msg_set{
+			     us = #ust{us = US, timestamp = Timestamp},
+			     peer = Peer, bare_peer = BarePeer,
+			     packet = Packet, nick = Nick,
+			     type = Type }
+			 )
+		end, Items)
+      end, Keys).
 
 %%%===================================================================
 %%% API
