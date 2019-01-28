@@ -318,16 +318,15 @@ select(_LServer, JidRequestor,
 	       undefined -> #rsm_set{max=30};
 	       _ -> RSM
 	   end,
-    {FilteredMsgs, IsComplete} = select_from_leveldb(LUser, LServer,Start, End, LWith, LRSM),
+    {Msgs, IsComplete} = select_from_leveldb(LUser, LServer,Start, End, LWith, LRSM),
 
-%    SortedMsgs = lists:sort(
-%		   fun(A, B) ->
-%			   #archive_msg_set{us = #ust{timestamp = T1}} = A,
-%			   #archive_msg_set{us = #ust{timestamp = T2}} = B,
-%			   T1 =< T2
-%		   end, Msgs),
+    SortedMsgs = lists:sort(
+		   fun(A, B) ->
+			   #archive_msg_set{us = #ust{timestamp = T1}} = A,
+			   #archive_msg_set{us = #ust{timestamp = T2}} = B,
+			   T1 =< T2
+		   end, Msgs),
 
-    %{FilteredMsgs, IsComplete} = filter_by_rsm(SortedMsgs, RSM),
     Count = undefined,
     Result = {lists:flatmap(
 		fun(MsgOR) ->
@@ -341,7 +340,7 @@ select(_LServer, JidRequestor,
 			    {error, _} ->
 				[]
 			end
-		end, FilteredMsgs), IsComplete, Count},
+		end, SortedMsgs), IsComplete, Count},
     erlang:garbage_collect(),
     Result.
 
