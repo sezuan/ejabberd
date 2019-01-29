@@ -40,6 +40,8 @@
 -include("logger.hrl").
 -include("mod_mam.hrl").
 
+-define(DEF_PAGE_SIZE, 50).
+
 -define(BIN_GREATER_THAN(A, B),
 	((A > B andalso byte_size(A) == byte_size(B))
 	 orelse byte_size(A) > byte_size(B))).
@@ -315,7 +317,7 @@ select(_LServer, JidRequestor,
 	       true -> undefined
 	    end,
     LRSM = case RSM of
-	       undefined -> #rsm_set{max=30};
+	       undefined -> #rsm_set{max=?DEF_PAGE_SIZE};
 	       _ -> RSM
 	   end,
     {Msgs, IsComplete} = select_from_leveldb(LUser, LServer,Start, End, LWith, LRSM),
