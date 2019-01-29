@@ -270,8 +270,11 @@ fetch_next_key(#search_options{user=LUser, server=LServer, start=Start}= SearchO
 	       timestamp = Start},
     fetch_next_key(SearchOptions, Key).
 
-fetch_next_key(#search_options{direction={_, F}}, Key) ->
-    F(archive_msg_set, Key).
+fetch_next_key(#search_options{direction={_, F}}, #ust{us = {LUser, LServer}}= Key) ->
+    case F(archive_msg_set, Key) of
+	    #ust{us = {LUser, LServer}} = NextKey -> NextKey;
+	    _ -> '$end_of_table'
+    end.
 
 select_from_leveldb_(#search_options{max=Max}, _, Result)
   when length(Result) =:= Max + 1->
