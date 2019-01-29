@@ -355,11 +355,11 @@ select(_LServer, JidRequestor,
 
 -spec timestamp_to_binary(erlang:timestamp()) -> binary().
 timestamp_to_binary(Timestamp) ->
-    base64:encode(term_to_binary(Timestamp)).
+    integer_to_binary(misc:now_to_usec(Timestamp)).
 
 -spec binary_to_timestamp(binary()) -> erlang:timestamp() | undefined.
 binary_to_timestamp(Binary) ->
-    case catch binary_to_term(base64:decode(Binary)) of
+    case catch misc:usec_to_now(binary_to_integer(Binary)) of
 	{'EXIT', _} -> undefined;
 	Timestamp -> Timestamp
     end.
