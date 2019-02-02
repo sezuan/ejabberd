@@ -33,6 +33,8 @@
 
 %% DEBUG EXPORTS
 -export([timestamp_to_binary/1, binary_to_timestamp/1,
+	 fetch_next_key/1, fetch_next_key/2,
+	 delete_us/1,
 	 select_from_leveldb/6, inc_timestamp/1, dec_timestamp/1]).
 
 -include_lib("stdlib/include/ms_transform.hrl").
@@ -51,7 +53,12 @@
 
 -define(TABLE_SIZE_LIMIT, 2000000000). % A bit less than 2 GiB.
 
+-record(search_options, {
+	direction, start, stop, user, server, with, max}).
 
+%%%===================================================================
+%%% Should be exported as COMMANDs
+%%%===================================================================
 convert_to_leveldb() ->
     Keys = mnesia:dirty_all_keys(archive_msg),
     lists:foreach(
@@ -92,12 +99,20 @@ init(_Host, _Opts) ->
 	    {error, db_failure}
     end.
 
-delete_us({Table, US}) ->
-    Msgs = mnesia:match_object(Table, #archive_msg_set{
-		us = #ust{us = US, timestamp = '_'}, _ = '_'}, read),
-    lists:foreach(fun(X) ->
-            mnesia:delete_object(X)
-        end, Msgs).
+delete_us({_Table, {LUser, LServer}}) ->
+    SearchOptions= #search_options{
+		      direction= {next, fun mnesia:dirty_next/2},
+		      start= '_', stop= '_',
+		      user= LUser, server= LServer,
+		      with= '_', max= '_'},
+    search_and_delete(SearchOptions, fetch_next_key(SearchOptions), 0).
+
+search_and_delete(_SearchOptions, '$end_of_table', Count) -> {ok, Count};
+search_and_delete(#search_options{user= LUser, server= LServer}= SO,
+		  #ust{us= {LUser, LServer}}= Key, Count) ->
+    mnesia:dirty_delete(archive_msg_set, Key),
+    search_and_delete(SO, fetch_next_key(SO, Key), Count+1);
+search_and_delete(_, _, Count) -> {ok, Count}.
 
 remove_user(LUser, LServer) ->
     US = {LUser, LServer},
@@ -222,9 +237,6 @@ integer_to_timestamp(Timestamp) ->
     {Timestamp div 1000000000000, 
      Timestamp div 1000000 rem 1000000,
      Timestamp rem 1000000}.
-
--record(search_options, {
-	direction, start, stop, user, server, with, max}).
 
 select_from_leveldb(LUser, LServer, Start, End, LWith,
 		    #rsm_set{'after' = After,
