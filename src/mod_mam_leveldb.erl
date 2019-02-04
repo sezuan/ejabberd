@@ -99,18 +99,27 @@ init(_Host, _Opts) ->
 	    {error, db_failure}
     end.
 
-delete_us({_Table, {LUser, LServer}}) ->
+delete_us({_Table, {LUser, LServer}}) -> delete_us({_Table, {LUser, LServer}, '_'});
+delete_us({_Table, {LUser, LServer}, Peer}) ->
     SearchOptions= #search_options{
 		      direction= {next, fun mnesia:dirty_next/2},
 		      start= '_', stop= '_',
 		      user= LUser, server= LServer,
-		      with= '_', max= '_'},
+		      with= Peer, max= '_'},
     search_and_delete(SearchOptions, fetch_next_key(SearchOptions), 0).
 
 search_and_delete(_SearchOptions, '$end_of_table', Count) -> {ok, Count};
-search_and_delete(#search_options{user= LUser, server= LServer}= SO,
+search_and_delete(#search_options{user= LUser, server= LServer, with=  '_'}= SO,
 		  #ust{us= {LUser, LServer}}= Key, Count) ->
     mnesia:dirty_delete(archive_msg_set, Key),
+    search_and_delete(SO, fetch_next_key(SO, Key), Count+1);
+search_and_delete(#search_options{user= LUser, server= LServer, with=  Peer}= SO,
+		  #ust{us= {LUser, LServer}}= Key, Count) ->
+    case mnesia:dirty_read(archive_msg_set, Key) of
+	[#archive_msg_set{bare_peer= Peer}] ->
+	    mnesia:dirty_delete(archive_msg_set, Key);
+	_ -> notfound
+    end,
     search_and_delete(SO, fetch_next_key(SO, Key), Count+1);
 search_and_delete(_, _, Count) -> {ok, Count}.
 
@@ -134,11 +143,7 @@ remove_from_archive(LUser, LServer, none) ->
 remove_from_archive(LUser, LServer, WithJid) ->
     US = {LUser, LServer},
     Peer = jid:remove_resource(jid:split(WithJid)),
-    F = fun () ->
-	    Msgs = mnesia:match_object(#archive_msg_set{us = #ust{us = US, _ = '_'}, bare_peer = Peer, _ = '_'}),
-	    lists:foreach(fun mnesia:delete_object/1, Msgs)
-	end,
-    case mnesia:transaction(F) of
+    case mnesia:transaction(fun () -> delete_us({archive_msg_set, US, Peer}) end) of
 	{atomic, _} -> ok;
 	{aborted, Reason} -> {error, Reason}
     end.
