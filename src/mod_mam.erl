@@ -1385,7 +1385,14 @@ get_commands_spec() ->
 			args_example = [<<"bob">>, <<"example.com">>, <<"anne@example.com">>],
 			result = {res, restuple},
 			result_desc = "Result tuple",
-			result_example = {ok, <<"MAM archive removed">>}}
+			result_example = {ok, <<"MAM archive removed">>}},
+     #ejabberd_commands{name = convert_mam_mnesia_to_leveldb, tags = [mam],
+			desc = "Converts a mam mnesia table to leveldb.",
+			module = mod_mam_leveldb, function = convert_to_leveldb,
+			args = [],
+			result = {res, restuple},
+			result_desc = "Result tuple",
+			result_example = {ok, <<"MAM archive converted">>}}
 	].
 
 mod_opt_type(compress_xml) ->
