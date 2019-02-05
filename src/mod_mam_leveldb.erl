@@ -78,7 +78,8 @@ convert_to_leveldb() ->
 			     type = Type }
 			 )
 		end, Items)
-      end, Keys).
+      end, Keys),
+    {ok, <<"MAM archive converted">>}.
 
 %%%===================================================================
 %%% API
