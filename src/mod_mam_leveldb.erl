@@ -29,7 +29,7 @@
 %% API
 -export([init/2, remove_user/2, remove_room/3, delete_old_messages/3,
 	 extended_fields/0, store/8, write_prefs/4, get_prefs/2, select/6, remove_from_archive/3,
-	 convert_to_leveldb/0]).
+	 is_empty_for_user/2, is_empty_for_room/3, convert_to_leveldb/0]).
 
 %% DEBUG EXPORTS
 -export([timestamp_to_binary/1, binary_to_timestamp/1,
@@ -366,6 +366,15 @@ select(_LServer, JidRequestor,
 		end, SortedMsgs), IsComplete, Count},
     erlang:garbage_collect(),
     Result.
+
+is_empty_for_user(LUser, LServer) ->
+    case mnesia:dirty_next(archive_msg_set, #ust{us= {LUser, LServer}, timestamp = {0,0,0}}) of
+	#ust{us= {LUser, LServer}, _ = '_'} -> false;
+	_ -> true
+    end.
+
+is_empty_for_room(_LServer, LName, LHost) ->
+    is_empty_for_user(LName, LHost).
 
 %%%===================================================================
 %%% Internal functions
