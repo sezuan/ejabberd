@@ -295,13 +295,16 @@ fetch_next_key(#search_options{direction={_, F}}, #ust{us = {LUser, LServer}}= K
     end.
 
 select_from_leveldb_(_, '$end_of_table', Result, Count, IsComplete) -> {Result, Count, IsComplete};
+
 select_from_leveldb_(#search_options{user=User, server=Server},
 		     #ust{us={User1,Server1}}, Result, Count, IsComplete)
   when User =/= User1 orelse Server =/= Server1-> {Result, Count, IsComplete};
+
 select_from_leveldb_(#search_options{direction={Dir, _}, stop=Ts},
                      #ust{timestamp=Ts1}, Result, Count, IsComplete)
   when (Ts =< Ts1 andalso Dir =:= next) orelse
        (Ts >= Ts1 andalso Dir =:= prev) -> {Result, Count, IsComplete};
+
 select_from_leveldb_(#search_options{max= Max}= SearchOptions,
 		     Key, Result, Count, IsComplete) ->
     [R] = mnesia:dirty_read(archive_msg_set, Key),
