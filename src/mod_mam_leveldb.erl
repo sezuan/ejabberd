@@ -281,7 +281,7 @@ select_from_leveldb(LUser, LServer, Start, End, LWith,
 		    end,
     
     Key = fetch_next_key(SearchOptions),
-    select_from_leveldb_(SearchOptions,  Key, []).
+    select_from_leveldb_(SearchOptions,  Key, [], 0, true).
 
 fetch_next_key(#search_options{user=LUser, server=LServer, start=Start}= SearchOptions) ->
     Key = #ust{us = {LUser, LServer},
@@ -294,36 +294,41 @@ fetch_next_key(#search_options{direction={_, F}}, #ust{us = {LUser, LServer}}= K
 	    _ -> '$end_of_table'
     end.
 
-select_from_leveldb_(#search_options{max=Max}, _, Result)
-  when length(Result) =:= Max + 1->
-    [_|Result1] = Result,
-    {Result1, false};
-select_from_leveldb_(_, '$end_of_table', Result) -> {Result, true};
+select_from_leveldb_(_, '$end_of_table', Result, Count, IsComplete) -> {Result, Count, IsComplete};
 select_from_leveldb_(#search_options{user=User, server=Server},
-		     #ust{us={User1,Server1}}, Result)
-  when User =/= User1 orelse Server =/= Server1-> {Result, true};
+		     #ust{us={User1,Server1}}, Result, Count, IsComplete)
+  when User =/= User1 orelse Server =/= Server1-> {Result, Count, IsComplete};
 select_from_leveldb_(#search_options{direction={Dir, _}, stop=Ts},
-		     #ust{timestamp=Ts1}, Result)
+                     #ust{timestamp=Ts1}, Result, Count, IsComplete)
   when (Ts =< Ts1 andalso Dir =:= next) orelse
-       (Ts >= Ts1 andalso Dir =:= prev) -> {Result, true};
-select_from_leveldb_(#search_options{}= SearchOptions, Key, Result) ->
+       (Ts >= Ts1 andalso Dir =:= prev) -> {Result, Count, IsComplete};
+select_from_leveldb_(#search_options{max= Max}= SearchOptions,
+		     Key, Result, Count, IsComplete) ->
     [R] = mnesia:dirty_read(archive_msg_set, Key),
-    NextResult = filter_with(SearchOptions, R, Result),
+    IsMax= (length(Result) =:= Max),
 
+    {NextResult, NewCount}= case IsMax of
+	false ->
+	    filter_with(SearchOptions, R, Result, Count);
+	true ->
+	    {_, NewCount1} = filter_with(SearchOptions, R, Result, Count),
+	    {Result, NewCount1}
+    end,
+    NewIsComplete= not(not IsComplete orelse NewCount > Count andalso IsMax),
     NextKey = fetch_next_key(SearchOptions, Key),
-    select_from_leveldb_(SearchOptions, NextKey, NextResult).
+    select_from_leveldb_(SearchOptions, NextKey, NextResult, NewCount, NewIsComplete).
 
 
-filter_with(#search_options{with = undefined}, R, Acc) -> [R|Acc];
-filter_with(#search_options{with = {_, _, <<>>} = With}, R, Acc) ->
+filter_with(#search_options{with = undefined}, R, Acc, Count) -> {[R|Acc], Count+1};
+filter_with(#search_options{with = {_, _, <<>>} = With}, R, Acc, Count) ->
     case R#archive_msg_set.bare_peer =:= With of
-	true -> [R|Acc];
-	false -> Acc
+	true -> {[R|Acc], Count+1};
+	false -> {Acc, Count}
     end;
-filter_with(#search_options{with = {_, _, _} = With}, R, Acc) ->
+filter_with(#search_options{with = {_, _, _} = With}, R, Acc, Count) ->
     case R#archive_msg_set.peer =:= With of
-	true -> [R|Acc];
-	false -> Acc
+	true -> {[R|Acc], Count+1};
+	false -> {Acc, Count}
     end.
 
 
@@ -341,7 +346,7 @@ select(_LServer, JidRequestor,
 	       undefined -> #rsm_set{max=?DEF_PAGE_SIZE};
 	       _ -> RSM
 	   end,
-    {Msgs, IsComplete} = select_from_leveldb(LUser, LServer,Start, End, LWith, LRSM),
+    {Msgs, Count, IsComplete} = select_from_leveldb(LUser, LServer,Start, End, LWith, LRSM),
 
     SortedMsgs = lists:sort(
 		   fun(A, B) ->
@@ -350,7 +355,6 @@ select(_LServer, JidRequestor,
 			   T1 =< T2
 		   end, Msgs),
 
-    Count = undefined,
     Result = {lists:flatmap(
 		fun(MsgOR) ->
 			Msg = change_record_type(MsgOR, archive_msg),
