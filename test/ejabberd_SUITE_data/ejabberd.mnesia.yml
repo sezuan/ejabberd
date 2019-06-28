@@ -31,7 +31,7 @@ define_macro:
         store_current_id: true
         db_type: internal
       mod_mam:
-        db_type: internal
+        db_type: leveldb
       mod_vcard:
         db_type: internal
       mod_vcard_xupdate: []
