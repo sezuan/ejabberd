@@ -20,7 +20,7 @@
 
 -record(ust,
 	{us = {<<"">>, <<"">>}           :: {binary(), binary()},
-	 timestamp = erlang::timestamp() :: erlang:timestamp()}).
+	 timestamp = erlang:timestamp() :: erlang:timestamp()}).
 
 -record(archive_msg_set,
 	{us = #ust{}                          :: #ust{},
